@@ -135,29 +135,29 @@ Radi redom po kontrolnoj listi. Kad nešto proradi, označi to u `kit/zadatak.md
 
 ### Početak
 
-- [ ] `npm run baza` ispiše „Baza je spremna.“, a <http://localhost:5173> pokaže broj redova u tabelama.
+- [x] `npm run baza` ispiše „Baza je spremna.“, a <http://localhost:5173> pokaže broj redova u tabelama.
 - [ ] SQLBolt, lekcije 1–17.
-- [ ] `sql/prvi-upit.sql` vraća deset kupaca s najvećim prometom u zadnjoj godini podataka: naziv, broj narudžbi i promet, bez otkazanih narudžbi.
+- [x] `sql/prvi-upit.sql` vraća deset kupaca s najvećim prometom u zadnjoj godini podataka: naziv, broj narudžbi i promet, bez otkazanih narudžbi.
 - [ ] React Quick Start i Tutorial (Tic-Tac-Toe), u posebnom folderu, ne u ovom repozitoriju.
-- [ ] `GET /api/kupci` vraća prvih deset kupaca iz baze kao JSON.
+- [x] `GET /api/kupci` vraća prvih deset kupaca iz baze kao JSON.
 
 ### Faza 1: narudžbe
 
-- [ ] Aplikacija ima MUI temu, traku na vrhu ili meni sa strane i naslov Narudžbe.
-- [ ] `GET /api/narudzbe` vraća narudžbe: broj, kupac, datum, status i iznos.
-- [ ] Stranica Narudžbe ih prikazuje u Data Gridu. Sortiranje radi i može se filtrirati po statusu.
-- [ ] Klik na narudžbu otvara detalje: stavke (proizvod, količina, cijena, rabat, iznos) i ukupan iznos.
-- [ ] `GET /api/kupci` sada vraća sve kupce, a `GET /api/proizvodi` aktivne proizvode s cijenom.
-- [ ] Forma za novu narudžbu ima kupca, datum i stavke. Stavka se dodaje i uklanja, a cijena se popuni iz cjenovnika i može se promijeniti.
-- [ ] Sačuvana narudžba ima broj koji je dao server i status `KREIRANA`, i vidi se u listi i nakon osvježavanja stranice.
-- [ ] Server odbija neispravnu narudžbu i kad je poslana bez forme (F12, `fetch` u konzoli): bez kupca, bez stavki, količina `0` ili `1.5`, cijena `-1`, rabat `120`, isti proizvod dvaput. Vraća status 400 i poruku za polje koje nije ispravno.
-- [ ] Server odbija i proizvod koji je neaktivan ili ne postoji. Server to provjerava upitom u bazu.
-- [ ] Kad server odbije narudžbu, forma prikaže njegovu poruku uz polje na koje se odnosi. Provjeri to tako što u SQL editoru proizvodu koji je već u formi postaviš `aktivan = false`, pa sačuvaš.
-- [ ] Narudžbu sa statusom `KREIRANA` obrišeš.
-- [ ] U detaljima se status bira s padajuće liste koja nudi samo dozvoljene prelaze.
-- [ ] Nedozvoljen prelaz (npr. `ISPORUCENA` → `KREIRANA`), poslan preko `fetch` u konzoli, server odbija (status 400).
-- [ ] Narudžbu sa statusom `KREIRANA` otvoriš u istoj formi kao novu, promijeniš kupca, datum i stavke i sačuvaš. Server izmjenu provjerava po istim pravilima kao novu narudžbu. Izmjena ostaje i nakon osvježavanja.
-- [ ] Kod narudžbe koja nije `KREIRANA` server odbija izmjenu kupca, datuma i stavki, i brisanje (status 400).
+- [x] Aplikacija ima MUI temu, traku na vrhu ili meni sa strane i naslov Narudžbe.
+- [x] `GET /api/narudzbe` vraća narudžbe: broj, kupac, datum, status i iznos.
+- [x] Stranica Narudžbe ih prikazuje u Data Gridu. Sortiranje radi i može se filtrirati po statusu.
+- [x] Klik na narudžbu otvara detalje: stavke (proizvod, količina, cijena, rabat, iznos) i ukupan iznos.
+- [x] `GET /api/kupci` sada vraća sve kupce, a `GET /api/proizvodi` aktivne proizvode s cijenom.
+- [x] Forma za novu narudžbu ima kupca, datum i stavke. Stavka se dodaje i uklanja, a cijena se popuni iz cjenovnika i može se promijeniti.
+- [x] Sačuvana narudžba ima broj koji je dao server i status `KREIRANA`, i vidi se u listi i nakon osvježavanja stranice.
+- [x] Server odbija neispravnu narudžbu i kad je poslana bez forme (F12, `fetch` u konzoli): bez kupca, bez stavki, količina `0` ili `1.5`, cijena `-1`, rabat `120`, isti proizvod dvaput. Vraća status 400 i poruku za polje koje nije ispravno.
+- [x] Server odbija i proizvod koji je neaktivan ili ne postoji. Server to provjerava upitom u bazu.
+- [x] Kad server odbije narudžbu, forma prikaže njegovu poruku uz polje na koje se odnosi. Provjeri to tako što u SQL editoru proizvodu koji je već u formi postaviš `aktivan = false`, pa sačuvaš.
+- [x] Narudžbu sa statusom `KREIRANA` obrišeš.
+- [x] U detaljima se status bira s padajuće liste koja nudi samo dozvoljene prelaze.
+- [x] Nedozvoljen prelaz (npr. `ISPORUCENA` → `KREIRANA`), poslan preko `fetch` u konzoli, server odbija (status 400).
+- [x] Narudžbu sa statusom `KREIRANA` otvoriš u istoj formi kao novu, promijeniš kupca, datum i stavke i sačuvaš. Server izmjenu provjerava po istim pravilima kao novu narudžbu. Izmjena ostaje i nakon osvježavanja.
+- [x] Kod narudžbe koja nije `KREIRANA` server odbija izmjenu kupca, datuma i stavki, i brisanje (status 400).
 - [x] `migracije/001-nacin-placanja.sql` dodaje u `narudzbe` kolonu `nacin_placanja` (`GOTOVINA`, `KARTICA` ili `VIRMAN`). Postojeće narudžbe dobiju `VIRMAN`, a `npm run baza` prolazi bez greške.
 - [x] Način plaćanja se bira u formi i vidi u listi.
 
@@ -195,7 +195,7 @@ Za asistenta treba besplatan Gemini API ključ iz [Google AI Studija](https://ai
 
 ### Završna prezentacija
 
-- [ ] README kaže kako pokrenuti aplikaciju i šta još ne radi.
-- [ ] U repozitoriju nema lozinki ni API ključeva.
+- [x] README kaže kako pokrenuti aplikaciju i šta još ne radi.
+- [x] U repozitoriju nema lozinki ni API ključeva.
 
 Na prezentaciji pokreneš aplikaciju na svom računaru i pokažeš je. Objasni put jednog zahtjeva od forme do baze i nazad, jedan problem i kako je riješen, i šta bi bilo sljedeće. Ako je dio koda napisao AI, objasni i njega. Slajdovi nisu potrebni.
