@@ -1,7 +1,8 @@
 // Oblik podataka koje backend vraća. Isti nazivi polja kao u JSON-u sa servera.
 
-export const STATUSI = ["KREIRANA", "U_OBRADI", "POSLATA", "ISPORUCENA", "OTKAZANA"] as const;
-export type Status = (typeof STATUSI)[number];
+// Statusi su definisani u shared/narudzba.ts (koristi ih i server), ovdje se samo prosljeđuju dalje.
+import type { Status } from "../shared/narudzba";
+export { STATUSI, type Status } from "../shared/narudzba";
 
 // Red u listi narudžbi (GET /api/narudzbe)
 export type NarudzbaRed = {

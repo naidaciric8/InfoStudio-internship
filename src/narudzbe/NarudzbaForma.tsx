@@ -1,5 +1,6 @@
-// Forma za novu narudžbu: kupac, datum i stavke. Stavka se dodaje i uklanja,
-// a cijena se popuni iz cjenovnika kad se izabere proizvod (i može se promijeniti).
+// Forma za novu narudžbu i za izmjenu postojeće (ista forma): kupac, datum i stavke.
+// Stavka se dodaje i uklanja, a cijena se popuni iz cjenovnika kad se izabere proizvod (i može se promijeniti).
+// Nova narudžba: POST /api/narudzbe. Izmjena: forma se popuni postojećom narudžbom i šalje PUT /api/narudzbe/:id.
 // Provjera: ista Zod šema kao na serveru (shared/narudzba.ts). Greške koje vrati server
 // (npr. proizvod u međuvremenu nije aktivan) prikazuju se uz polje na koje se odnose.
 import { useEffect, useState } from "react";
@@ -29,11 +30,12 @@ import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlinedIcon from "@mui/icons-material/DeleteOutlined";
 import { api, ApiGreska, porukaGreske } from "../api";
 import { formatKM } from "../format";
-import type { Kupac, Proizvod } from "../tipovi";
+import type { Kupac, NarudzbaDetalji, Proizvod } from "../tipovi";
 import { iznosStavke, NarudzbaSema, type NarudzbaUlaz, type StavkaUlaz } from "../../shared/narudzba";
 
 type Props = {
   otvorena: boolean;
+  izmjenaId?: number | null; // id narudžbe koja se mijenja; null ili bez ovoga = nova narudžba
   onClose: () => void;
   onSacuvano: (broj: string) => void;
 };
@@ -47,7 +49,7 @@ function danas() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 
-export default function NarudzbaForma({ otvorena, onClose, onSacuvano }: Props) {
+export default function NarudzbaForma({ otvorena, izmjenaId = null, onClose, onSacuvano }: Props) {
   const theme = useTheme();
   const naMobitelu = useMediaQuery(theme.breakpoints.down("sm"));
 
@@ -56,6 +58,7 @@ export default function NarudzbaForma({ otvorena, onClose, onSacuvano }: Props) 
   const [ucitava, setUcitava] = useState(false);
   const [greskaUcitavanja, setGreskaUcitavanja] = useState<string | null>(null);
   const [greskaServera, setGreskaServera] = useState<string | null>(null);
+  const [brojIzmjene, setBrojIzmjene] = useState<string | null>(null); // broj narudžbe koja se mijenja (za naslov)
 
   const {
     control,
@@ -71,30 +74,66 @@ export default function NarudzbaForma({ otvorena, onClose, onSacuvano }: Props) 
   });
   const { fields, append, remove } = useFieldArray({ control, name: "stavke" });
 
-  // Svaki put kad se forma otvori: prazna forma i svježi kupci i proizvodi (cjenovnik se može promijeniti).
+  // Svaki put kad se forma otvori: svježi kupci i proizvodi (cjenovnik se može promijeniti).
+  // Kod izmjene se učita i narudžba, pa se forma popuni njenim podacima.
   useEffect(() => {
     if (!otvorena) return;
     reset({ kupac_id: 0, datum: danas(), stavke: [praznaStavka()] });
     setGreskaServera(null);
     setGreskaUcitavanja(null);
+    setBrojIzmjene(null);
     setUcitava(true);
-    Promise.all([api<Kupac[]>("/api/kupci"), api<Proizvod[]>("/api/proizvodi")])
-      .then(([k, p]) => {
+    Promise.all([
+      api<Kupac[]>("/api/kupci"),
+      api<Proizvod[]>("/api/proizvodi"),
+      izmjenaId ? api<NarudzbaDetalji>(`/api/narudzbe/${izmjenaId}`) : Promise.resolve(null),
+    ])
+      .then(([k, p, postojeca]) => {
         setKupci(k);
-        setProizvodi(p);
+        if (!postojeca) {
+          setProizvodi(p);
+          return;
+        }
+        // Proizvod iz stare narudžbe koji više nije aktivan nije u cjenovniku, pa ga dodajemo u listu
+        // (označen), da se vidi šta je bilo. Server će ga pri snimanju odbiti, pa ga korisnik zamijeni.
+        const aktivni = new Set(p.map((x) => x.id));
+        const neaktivni: Proizvod[] = postojeca.stavke
+          .filter((s) => !aktivni.has(s.proizvod_id))
+          .map((s) => ({
+            id: s.proizvod_id,
+            sifra: s.sifra,
+            naziv: `${s.proizvod} (nije aktivan)`,
+            jedinica_mjere: s.jedinica_mjere,
+            cijena: s.cijena_po_komadu,
+            kategorija: "Neaktivni proizvodi",
+          }));
+        setProizvodi([...p, ...neaktivni]);
+        setBrojIzmjene(postojeca.broj);
+        // Cijene ostaju one iz narudžbe (cijena u trenutku narudžbe), ne današnje iz cjenovnika.
+        reset({
+          kupac_id: postojeca.kupac_id,
+          datum: postojeca.datum,
+          stavke: postojeca.stavke.map((s) => ({
+            proizvod_id: s.proizvod_id,
+            kolicina: s.kolicina,
+            cijena_po_komadu: s.cijena_po_komadu,
+            rabat_posto: s.rabat_posto,
+          })),
+        });
       })
       .catch((e) => setGreskaUcitavanja(porukaGreske(e)))
       .finally(() => setUcitava(false));
-  }, [otvorena, reset]);
+  }, [otvorena, izmjenaId, reset]);
 
   async function sacuvaj(narudzba: NarudzbaUlaz) {
     setGreskaServera(null);
     try {
-      const nova = await api<{ id: number; broj: string }>("/api/narudzbe", {
-        method: "POST",
-        body: JSON.stringify(narudzba),
-      });
-      onSacuvano(nova.broj);
+      // Nova narudžba → POST na /api/narudzbe. Izmjena → PUT na /api/narudzbe/:id (ista pravila na serveru).
+      const odgovor = await api<{ id: number; broj: string }>(
+        izmjenaId ? `/api/narudzbe/${izmjenaId}` : "/api/narudzbe",
+        { method: izmjenaId ? "PUT" : "POST", body: JSON.stringify(narudzba) },
+      );
+      onSacuvano(odgovor.broj);
     } catch (e) {
       if (e instanceof ApiGreska && Object.keys(e.polja).length > 0) {
         // Ključevi sa servera ("stavke.0.proizvod_id") su isti kao nazivi polja u formi.
@@ -120,13 +159,13 @@ export default function NarudzbaForma({ otvorena, onClose, onSacuvano }: Props) 
   return (
     <Dialog open={otvorena} onClose={zatvori} fullWidth maxWidth="md" fullScreen={naMobitelu}>
       <form onSubmit={handleSubmit(sacuvaj)} noValidate>
-        <DialogTitle>Nova narudžba</DialogTitle>
+        <DialogTitle>{izmjenaId ? `Izmjena narudžbe ${brojIzmjene ?? ""}` : "Nova narudžba"}</DialogTitle>
         {ucitava && <LinearProgress />}
 
         <DialogContent dividers>
           {greskaUcitavanja && (
             <Alert severity="error" sx={{ mb: 2 }}>
-              Kupci i proizvodi se nisu učitali: {greskaUcitavanja}
+              Podaci za formu se nisu učitali: {greskaUcitavanja}
             </Alert>
           )}
           {greskaServera && (
@@ -231,7 +270,7 @@ export default function NarudzbaForma({ otvorena, onClose, onSacuvano }: Props) 
             Odustani
           </Button>
           <Button type="submit" variant="contained" loading={isSubmitting} disabled={ucitava || !!greskaUcitavanja}>
-            Sačuvaj narudžbu
+            {izmjenaId ? "Sačuvaj izmjene" : "Sačuvaj narudžbu"}
           </Button>
         </DialogActions>
       </form>

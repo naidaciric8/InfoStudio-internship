@@ -6,7 +6,14 @@ import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
 import type { PoolClient } from "pg";
 import { pool, transakcija } from "./db";
-import { NarudzbaSema, type NarudzbaUlaz, type StavkaUlaz } from "../shared/narudzba";
+import {
+  DOZVOLJENI_PRELAZI,
+  NarudzbaSema,
+  PromjenaStatusaSema,
+  type NarudzbaUlaz,
+  type Status,
+  type StavkaUlaz,
+} from "../shared/narudzba";
 
 const app = new Hono();
 
@@ -123,6 +130,78 @@ app.get("/api/narudzbe/:id", async (c) => {
   return c.json({ ...zaglavlje.rows[0], stavke: stavke.rows, ukupno: ukupnoCenti / 100 });
 });
 
+// Brisanje narudžbe. Smije se obrisati samo KREIRANA; stavke briše baza (on delete cascade).
+app.delete("/api/narudzbe/:id", async (c) => {
+  // 1. Provjeri id (isto kao u ruti iznad)
+  const ulaz = IdParametri.safeParse({ id: c.req.param("id") });
+  if (!ulaz.success) {
+    return c.json({ poruka: "Neispravan zahtjev.", polja: poljaIzZoda(ulaz.error) }, 400);
+  }
+  const id = ulaz.data.id;
+
+  // 2. Obriši SAMO ako je KREIRANA. RETURNING id vrati id obrisanog reda (ili ništa).
+  //    Provjera i brisanje su u JEDNOM upitu, pa niko ne može promijeniti status između njih.
+  const obrisano = await pool.query(
+    "DELETE FROM narudzbe WHERE id = $1 AND status = 'KREIRANA' RETURNING id",
+    [id],
+  );
+  if (obrisano.rows.length > 0) {
+    return c.json({ poruka: "Narudžba je obrisana." });
+  }
+
+  // 3. Ništa nije obrisano. Zašto? Ili ne postoji, ili nije KREIRANA.
+  const postoji = await pool.query("SELECT status FROM narudzbe WHERE id = $1", [id]);
+  if (postoji.rows.length === 0) {
+    return c.json({ poruka: "Narudžba ne postoji." }, 404);
+  }
+  return c.json({ poruka: "Može se obrisati samo narudžba u statusu KREIRANA." }, 400);
+});
+
+// Promjena statusa, samo po tabeli dozvoljenih prelaza (shared/narudzba.ts).
+// Kad narudžba postane ISPORUCENA, upiše se i datum isporuke.
+// PATCH (a ne PUT) jer se mijenja samo jedan dio narudžbe, status, a ne cijela narudžba.
+app.patch("/api/narudzbe/:id/status", async (c) => {
+  const idUlaz = IdParametri.safeParse({ id: c.req.param("id") });
+  if (!idUlaz.success) {
+    return c.json({ poruka: "Neispravan zahtjev.", polja: poljaIzZoda(idUlaz.error) }, 400);
+  }
+  const tijelo = await c.req.json().catch(() => null);
+  const ulaz = PromjenaStatusaSema.safeParse(tijelo);
+  if (!ulaz.success) {
+    return c.json({ poruka: "Neispravan zahtjev.", polja: poljaIzZoda(ulaz.error) }, 400);
+  }
+  const id = idUlaz.data.id;
+  const novi = ulaz.data.status;
+
+  const rezultat = await transakcija(async (client) => {
+    // FOR UPDATE zaključa ovaj red do kraja transakcije: dvije istovremene promjene ne mogu se ispreplesti.
+    const r = await client.query<{ status: Status }>("SELECT status FROM narudzbe WHERE id = $1 FOR UPDATE", [id]);
+    if (r.rows.length === 0) return { kod: 404 as const };
+
+    const trenutni = r.rows[0].status;
+    if (!DOZVOLJENI_PRELAZI[trenutni].includes(novi)) return { kod: 400 as const, trenutni };
+
+    // greatest(...): datum isporuke ne smije biti prije datuma narudžbe (pravilo u bazi).
+    // $2::varchar kaže bazi da je $2 tekst (isti parametar se koristi na dva mjesta, pa ga ne zna sama odrediti).
+    const azurirano = await client.query(
+      `UPDATE narudzbe
+       SET status = $2::varchar,
+           datum_isporuke = CASE WHEN $2::varchar = 'ISPORUCENA' THEN greatest(current_date, datum) ELSE datum_isporuke END
+       WHERE id = $1
+       RETURNING id, broj, status, datum_isporuke`,
+      [id, novi],
+    );
+    return { kod: 200 as const, narudzba: azurirano.rows[0] };
+  });
+
+  if (rezultat.kod === 404) return c.json({ poruka: "Narudžba ne postoji." }, 404);
+  if (rezultat.kod === 400) {
+    const poruka = `Status se ne može promijeniti iz ${rezultat.trenutni} u ${novi}.`;
+    return c.json({ poruka, polja: { status: poruka } }, 400);
+  }
+  return c.json(rezultat.narudzba);
+});
+
 // Nova narudžba. Redoslijed:
 // 1. Zod provjeri oblik podataka (kupac, datum, stavke, količine, cijene, rabat, duplikati).
 // 2. U transakciji: provjera u bazi da kupac postoji i da su proizvodi aktivni,
@@ -152,6 +231,51 @@ app.post("/api/narudzbe", async (c) => {
     return c.json({ poruka: "Narudžba nije ispravna.", polja: rezultat.greske }, 400);
   }
   return c.json(rezultat.narudzba, 201);
+});
+
+// Izmjena narudžbe (kupac, datum, stavke). Ista pravila kao za novu narudžbu (NarudzbaSema, provjeriUBazi).
+// Smije se mijenjati samo KREIRANA narudžba. Broj se ne mijenja ni kad se promijeni datum.
+// PUT (a ne PATCH) jer se šalje i zamjenjuje CIJELA narudžba: kupac, datum i sve stavke.
+app.put("/api/narudzbe/:id", async (c) => {
+  const idUlaz = IdParametri.safeParse({ id: c.req.param("id") });
+  if (!idUlaz.success) {
+    return c.json({ poruka: "Neispravan zahtjev.", polja: poljaIzZoda(idUlaz.error) }, 400);
+  }
+  const tijelo = await c.req.json().catch(() => null);
+  const ulaz = NarudzbaSema.safeParse(tijelo);
+  if (!ulaz.success) {
+    return c.json({ poruka: "Narudžba nije ispravna.", polja: poljaIzZoda(ulaz.error) }, 400);
+  }
+  const id = idUlaz.data.id;
+  const narudzba = ulaz.data;
+
+  const rezultat = await transakcija(async (client) => {
+    // FOR UPDATE: niko drugi ne može mijenjati ovu narudžbu (npr. status) dok traje izmjena.
+    const r = await client.query<{ status: Status }>("SELECT status FROM narudzbe WHERE id = $1 FOR UPDATE", [id]);
+    if (r.rows.length === 0) return { kod: 404 as const };
+    if (r.rows[0].status !== "KREIRANA") return { kod: 400 as const };
+
+    const greske = await provjeriUBazi(client, narudzba);
+    if (Object.keys(greske).length > 0) return { kod: 422 as const, greske };
+
+    const azurirana = await client.query(
+      "UPDATE narudzbe SET kupac_id = $2, datum = $3 WHERE id = $1 RETURNING id, broj, status",
+      [id, narudzba.kupac_id, narudzba.datum],
+    );
+    // Stavke: najjednostavnije je obrisati stare i upisati nove (sve je u istoj transakciji).
+    await client.query("DELETE FROM stavke_narudzbe WHERE narudzba_id = $1", [id]);
+    await upisiStavke(client, id, narudzba.stavke);
+    return { kod: 200 as const, narudzba: azurirana.rows[0] };
+  });
+
+  if (rezultat.kod === 404) return c.json({ poruka: "Narudžba ne postoji." }, 404);
+  if (rezultat.kod === 400) {
+    return c.json({ poruka: "Mijenjati se može samo narudžba u statusu KREIRANA." }, 400);
+  }
+  if (rezultat.kod === 422) {
+    return c.json({ poruka: "Narudžba nije ispravna.", polja: rezultat.greske }, 400);
+  }
+  return c.json(rezultat.narudzba);
 });
 
 // Provjere koje traže bazu: kupac postoji, svaki proizvod postoji i aktivan je.

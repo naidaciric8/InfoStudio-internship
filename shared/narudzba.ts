@@ -56,6 +56,24 @@ export const NarudzbaSema = z
   });
 
 export type NarudzbaUlaz = z.infer<typeof NarudzbaSema>;
+
+// Statusi narudžbe i dozvoljeni prelazi (tabela iz zadatka).
+// Frontend iz ovoga pravi padajuću listu, a server po tome odbija nedozvoljen prelaz.
+export const STATUSI = ["KREIRANA", "U_OBRADI", "POSLATA", "ISPORUCENA", "OTKAZANA"] as const;
+export type Status = (typeof STATUSI)[number];
+
+export const DOZVOLJENI_PRELAZI: Record<Status, Status[]> = {
+  KREIRANA: ["U_OBRADI", "OTKAZANA"],
+  U_OBRADI: ["POSLATA", "OTKAZANA"],
+  POSLATA: ["ISPORUCENA"],
+  ISPORUCENA: [], // kraj
+  OTKAZANA: [], // kraj
+};
+
+// Tijelo zahtjeva za promjenu statusa: { "status": "U_OBRADI" }
+export const PromjenaStatusaSema = z.object({
+  status: z.enum(STATUSI, { error: "Izaberi ispravan status." }),
+}, { error: "Zahtjev mora biti JSON objekat sa statusom." });
 export type StavkaUlaz = z.infer<typeof StavkaSema>;
 
 // "2025-02-30" ima ispravan oblik, ali takav dan ne postoji. Godina je ograničena jer broj narudžbe ima 4 cifre godine.

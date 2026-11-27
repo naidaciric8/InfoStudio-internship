@@ -1,5 +1,7 @@
 // Dijalog s detaljima jedne narudžbe: zaglavlje, stavke s iznosom i ukupan iznos.
 // Podatke učitava sam, sa GET /api/narudzbe/:id, svaki put kad se otvori za neku narudžbu.
+// Narudžba u statusu KREIRANA može se obrisati, uz potvrdu (DELETE /api/narudzbe/:id).
+// Status se mijenja s padajuće liste koja nudi samo dozvoljene prelaze (PATCH /api/narudzbe/:id/status).
 import { useEffect, useState } from "react";
 import {
   Alert,
@@ -10,6 +12,7 @@ import {
   DialogContent,
   DialogTitle,
   Divider,
+  MenuItem,
   Skeleton,
   Stack,
   Table,
@@ -18,13 +21,18 @@ import {
   TableContainer,
   TableHead,
   TableRow,
+  TextField,
+  Tooltip,
   Typography,
   useMediaQuery,
   useTheme,
 } from "@mui/material";
+import DeleteOutlinedIcon from "@mui/icons-material/DeleteOutlined";
+import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import { api, porukaGreske } from "../api";
-import { formatDatum, formatKM } from "../format";
-import type { NarudzbaDetalji } from "../tipovi";
+import { formatDatum, formatKM, STATUS_NAZIV } from "../format";
+import type { NarudzbaDetalji, Status } from "../tipovi";
+import { DOZVOLJENI_PRELAZI } from "../../shared/narudzba";
 import StatusChip from "./StatusChip";
 
 // Na mobitelu (xs) sakrivamo Cijenu i Rabat da tabela stane; Iznos ostaje.
@@ -33,14 +41,27 @@ const samoSiri = { display: { xs: "none", sm: "table-cell" }, whiteSpace: "nowra
 type Props = {
   id: number | null; // null = dijalog je zatvoren
   onClose: () => void;
+  onObrisano: (broj: string) => void; // poslije brisanja: lista zatvori detalje, osvježi se i javi poruku
+  onStatusPromijenjen: (broj: string, status: Status) => void; // lista se osvježi i javi poruku
+  onIzmijeni: (id: number) => void; // lista zatvori detalje i otvori formu za izmjenu
 };
 
-export default function DetaljiNarudzbe({ id, onClose }: Props) {
+export default function DetaljiNarudzbe({ id, onClose, onObrisano, onStatusPromijenjen, onIzmijeni }: Props) {
   const theme = useTheme();
   const naMobitelu = useMediaQuery(theme.breakpoints.down("sm"));
 
   const [narudzba, setNarudzba] = useState<NarudzbaDetalji | null>(null);
   const [greska, setGreska] = useState<string | null>(null);
+
+  // Brisanje: prvo se otvori mali dijalog "Da li ste sigurni?", tek onda se šalje zahtjev.
+  const [potvrdaOtvorena, setPotvrdaOtvorena] = useState(false);
+  const [brise, setBrise] = useState(false);
+  const [greskaBrisanja, setGreskaBrisanja] = useState<string | null>(null);
+
+  // Promjena statusa: izabrani novi status ("" = ništa nije izabrano).
+  const [noviStatus, setNoviStatus] = useState<Status | "">("");
+  const [mijenja, setMijenja] = useState(false);
+  const [greskaStatusa, setGreskaStatusa] = useState<string | null>(null);
 
   useEffect(() => {
     if (id === null) return;
@@ -49,6 +70,10 @@ export default function DetaljiNarudzbe({ id, onClose }: Props) {
     const kontroler = new AbortController();
     setNarudzba(null);
     setGreska(null);
+    setPotvrdaOtvorena(false);
+    setGreskaBrisanja(null);
+    setNoviStatus("");
+    setGreskaStatusa(null);
     api<NarudzbaDetalji>(`/api/narudzbe/${id}`, { signal: kontroler.signal })
       .then(setNarudzba)
       .catch((e) => {
@@ -56,6 +81,48 @@ export default function DetaljiNarudzbe({ id, onClose }: Props) {
       });
     return () => kontroler.abort();
   }, [id]);
+
+  async function obrisi() {
+    if (!narudzba) return;
+    setBrise(true);
+    setGreskaBrisanja(null);
+    try {
+      await api(`/api/narudzbe/${narudzba.id}`, { method: "DELETE" });
+      setPotvrdaOtvorena(false);
+      onObrisano(narudzba.broj);
+    } catch (e) {
+      // Npr. neko je u međuvremenu promijenio status, pa server vrati 400 s porukom.
+      setGreskaBrisanja(porukaGreske(e));
+    } finally {
+      setBrise(false);
+    }
+  }
+
+  async function promijeniStatus() {
+    if (!narudzba || !noviStatus) return;
+    setMijenja(true);
+    setGreskaStatusa(null);
+    try {
+      // PATCH = HTTP metoda za promjenu DIJELA postojećeg podatka (ovdje samo statusa).
+      // Za poređenje: GET čita, POST pravi novo, DELETE briše, PUT zamijeni cijeli podatak.
+      const odgovor = await api<{ status: Status; datum_isporuke: string | null }>(
+        `/api/narudzbe/${narudzba.id}/status`,
+        { method: "PATCH", body: JSON.stringify({ status: noviStatus }) },
+      );
+      // Prozor ostaje otvoren s novim statusom (i datumom isporuke, ako je isporučena).
+      setNarudzba({ ...narudzba, status: odgovor.status, datum_isporuke: odgovor.datum_isporuke });
+      setNoviStatus("");
+      onStatusPromijenjen(narudzba.broj, odgovor.status);
+    } catch (e) {
+      setGreskaStatusa(porukaGreske(e));
+    } finally {
+      setMijenja(false);
+    }
+  }
+
+  const mozeBrisati = narudzba?.status === "KREIRANA";
+  // Samo statusi u koje se iz trenutnog smije preći (tabela iz zadatka, shared/narudzba.ts).
+  const prelazi = narudzba ? DOZVOLJENI_PRELAZI[narudzba.status] : [];
 
   return (
     <Dialog open={id !== null} onClose={onClose} fullWidth maxWidth="md" fullScreen={naMobitelu}>
@@ -92,6 +159,40 @@ export default function DetaljiNarudzbe({ id, onClose }: Props) {
               <Podatak naziv="Datum narudžbe" vrijednost={formatDatum(narudzba.datum)} />
               <Podatak naziv="Datum isporuke" vrijednost={formatDatum(narudzba.datum_isporuke)} />
               <Podatak naziv="Broj stavki" vrijednost={String(narudzba.stavke.length)} />
+            </Box>
+
+            {/* Promjena statusa */}
+            <Box sx={{ mb: 3, p: 2, borderRadius: 2, bgcolor: "action.hover" }}>
+              {prelazi.length > 0 ? (
+                <Stack direction={{ xs: "column", sm: "row" }} spacing={1.5} sx={{ alignItems: { sm: "center" } }}>
+                  <TextField
+                    select
+                    size="small"
+                    label="Promijeni status u"
+                    value={noviStatus}
+                    onChange={(e) => setNoviStatus(e.target.value as Status)}
+                    sx={{ minWidth: 220, bgcolor: "background.paper" }}
+                  >
+                    {prelazi.map((s) => (
+                      <MenuItem key={s} value={s}>
+                        {STATUS_NAZIV[s]}
+                      </MenuItem>
+                    ))}
+                  </TextField>
+                  <Button variant="contained" onClick={promijeniStatus} disabled={!noviStatus} loading={mijenja}>
+                    Promijeni status
+                  </Button>
+                </Stack>
+              ) : (
+                <Typography variant="body2" color="text.secondary">
+                  Status {STATUS_NAZIV[narudzba.status]} je konačan i više se ne može mijenjati.
+                </Typography>
+              )}
+              {greskaStatusa && (
+                <Alert severity="error" sx={{ mt: 1.5 }}>
+                  {greskaStatusa}
+                </Alert>
+              )}
             </Box>
 
             {narudzba.napomena && (
@@ -148,9 +249,59 @@ export default function DetaljiNarudzbe({ id, onClose }: Props) {
         )}
       </DialogContent>
 
-      <DialogActions>
+      <DialogActions sx={{ px: 3, py: 2, justifyContent: "space-between" }}>
+        {/* Izmijeni i Obriši: aktivni samo za KREIRANU narudžbu (isto pravilo provjerava i server). */}
+        <Stack direction="row" spacing={1}>
+          <Tooltip title={mozeBrisati ? "" : "Mijenjati se može samo narudžba u statusu Kreirana"}>
+            <span>
+              <Button
+                startIcon={<EditOutlinedIcon />}
+                disabled={!mozeBrisati}
+                onClick={() => narudzba && onIzmijeni(narudzba.id)}
+              >
+                Izmijeni
+              </Button>
+            </span>
+          </Tooltip>
+          <Tooltip title={mozeBrisati ? "" : "Obrisati se može samo narudžba u statusu Kreirana"}>
+            <span>
+              <Button
+                color="error"
+                startIcon={<DeleteOutlinedIcon />}
+                disabled={!mozeBrisati}
+                onClick={() => setPotvrdaOtvorena(true)}
+              >
+                Obriši
+              </Button>
+            </span>
+          </Tooltip>
+        </Stack>
         <Button onClick={onClose}>Zatvori</Button>
       </DialogActions>
+
+      {/* Potvrda brisanja: brisanje se ne može poništiti, pa pitamo još jednom. */}
+      <Dialog open={potvrdaOtvorena} onClose={() => !brise && setPotvrdaOtvorena(false)} maxWidth="xs" fullWidth>
+        <DialogTitle>Obrisati narudžbu?</DialogTitle>
+        <DialogContent>
+          {greskaBrisanja && (
+            <Alert severity="error" sx={{ mb: 2 }}>
+              {greskaBrisanja}
+            </Alert>
+          )}
+          <Typography>
+            Narudžba <b>{narudzba?.broj}</b> ({narudzba?.kupac}) i sve njene stavke bit će trajno obrisane. Ovo se ne
+            može poništiti.
+          </Typography>
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setPotvrdaOtvorena(false)} disabled={brise} color="inherit">
+            Odustani
+          </Button>
+          <Button onClick={obrisi} loading={brise} variant="contained" color="error">
+            Obriši
+          </Button>
+        </DialogActions>
+      </Dialog>
     </Dialog>
   );
 }

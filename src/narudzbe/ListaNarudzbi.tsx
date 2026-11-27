@@ -95,6 +95,7 @@ export default function ListaNarudzbi() {
   const [odabranaId, setOdabranaId] = useState<number | null>(null);
   const [filter, setFilter] = useState<GridFilterModel>({ items: [] });
   const [formaOtvorena, setFormaOtvorena] = useState(false);
+  const [izmjenaId, setIzmjenaId] = useState<number | null>(null); // null = forma za novu narudžbu
   const [poruka, setPoruka] = useState<string | null>(null); // tekst za Snackbar
 
   const ucitaj = useCallback(async () => {
@@ -146,7 +147,15 @@ export default function ListaNarudzbi() {
           </Typography>
           <Typography color="text.secondary">Pregled svih narudžbi kupaca.</Typography>
         </Box>
-        <Button variant="contained" size="large" startIcon={<AddIcon />} onClick={() => setFormaOtvorena(true)}>
+        <Button
+          variant="contained"
+          size="large"
+          startIcon={<AddIcon />}
+          onClick={() => {
+            setIzmjenaId(null); // nova narudžba, ne izmjena
+            setFormaOtvorena(true);
+          }}
+        >
           Nova narudžba
         </Button>
       </Stack>
@@ -215,15 +224,33 @@ export default function ListaNarudzbi() {
         </Typography>
       </Box>
 
-      <DetaljiNarudzbe id={odabranaId} onClose={() => setOdabranaId(null)} />
+      <DetaljiNarudzbe
+        id={odabranaId}
+        onClose={() => setOdabranaId(null)}
+        onObrisano={(broj) => {
+          setOdabranaId(null);
+          setPoruka(`Narudžba ${broj} je obrisana.`);
+          ucitaj(); // obrisana narudžba odmah nestaje iz liste
+        }}
+        onStatusPromijenjen={(broj, status) => {
+          setPoruka(`Narudžba ${broj} je sada: ${STATUS_NAZIV[status]}.`);
+          ucitaj(); // lista i brojači po statusu odmah pokazuju novi status
+        }}
+        onIzmijeni={(id) => {
+          setOdabranaId(null); // zatvori detalje
+          setIzmjenaId(id); // ista forma kao za novu, ali popunjena ovom narudžbom
+          setFormaOtvorena(true);
+        }}
+      />
 
       <NarudzbaForma
         otvorena={formaOtvorena}
+        izmjenaId={izmjenaId}
         onClose={() => setFormaOtvorena(false)}
         onSacuvano={(broj) => {
           setFormaOtvorena(false);
-          setPoruka(`Narudžba ${broj} je sačuvana.`);
-          ucitaj(); // nova narudžba se odmah vidi u listi
+          setPoruka(izmjenaId ? `Izmjene narudžbe ${broj} su sačuvane.` : `Narudžba ${broj} je sačuvana.`);
+          ucitaj(); // nova ili izmijenjena narudžba se odmah vidi u listi
         }}
       />
 
