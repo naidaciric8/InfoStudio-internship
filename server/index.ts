@@ -4,7 +4,9 @@ import { serve } from "@hono/node-server";
 import { Hono } from "hono";
 import { HTTPException } from "hono/http-exception";
 import { z } from "zod";
-import { pool } from "./db";
+import type { PoolClient } from "pg";
+import { pool, transakcija } from "./db";
+import { NarudzbaSema, type NarudzbaUlaz, type StavkaUlaz } from "../shared/narudzba";
 
 const app = new Hono();
 
@@ -38,9 +40,14 @@ app.get("/api/provjera", async (c) => {
   }
 });
 
+// Iznos jedne stavke: količina × cijena × (1 − rabat / 100), zaokružen na 2 decimale.
+// Isti izraz koriste lista i detalji, pa se ukupni iznosi uvijek slažu.
+const IZNOS_STAVKE = "round(s.kolicina * s.cijena_po_komadu * (1 - s.rabat_posto / 100), 2)";
+
 // Primjer: jedan kupac po id-u. Neispravan zahtjev vraća 400 s porukom za svako polje.
 // Vrijednost od korisnika ide u upit samo kao parametar ($1), nikad lijepljenjem u tekst upita.
-const KupacParametri = z.object({
+// Ista provjera vrijedi za svaki id u adresi (kupac, narudžba...).
+const IdParametri = z.object({
   id: z.coerce
     .number({ error: "Id mora biti broj." })
     .int({ error: "Id mora biti cijeli broj." })
@@ -49,7 +56,7 @@ const KupacParametri = z.object({
 });
 
 app.get("/api/kupci/:id", async (c) => {
-  const ulaz = KupacParametri.safeParse({ id: c.req.param("id") });
+  const ulaz = IdParametri.safeParse({ id: c.req.param("id") });
   if (!ulaz.success) {
     return c.json({ poruka: "Neispravan zahtjev.", polja: poljaIzZoda(ulaz.error) }, 400);
   }
@@ -59,6 +66,159 @@ app.get("/api/kupci/:id", async (c) => {
   );
   if (r.rows.length === 0) return c.json({ poruka: "Kupac ne postoji." }, 404);
   return c.json(r.rows[0]);
+});
+
+// Sve narudžbe za listu: broj, kupac, datum, status i ukupan iznos.
+// LEFT JOIN: narudžba bez stavki se i dalje vidi, s iznosom 0.
+app.get("/api/narudzbe", async (c) => {
+  const rezultat = await pool.query(`
+    SELECT
+      n.id,
+      n.broj,
+      n.kupac_id,
+      k.naziv AS kupac,
+      n.datum,
+      n.status,
+      coalesce(sum(${IZNOS_STAVKE}), 0) AS iznos
+    FROM narudzbe n
+    JOIN kupci k ON k.id = n.kupac_id
+    LEFT JOIN stavke_narudzbe s ON s.narudzba_id = n.id
+    GROUP BY n.id, k.naziv
+    ORDER BY n.datum DESC, n.id DESC
+  `);
+  return c.json(rezultat.rows);
+});
+
+// Detalji jedne narudžbe: zaglavlje, stavke s iznosom i ukupan iznos.
+app.get("/api/narudzbe/:id", async (c) => {
+  const ulaz = IdParametri.safeParse({ id: c.req.param("id") });
+  if (!ulaz.success) {
+    return c.json({ poruka: "Neispravan zahtjev.", polja: poljaIzZoda(ulaz.error) }, 400);
+  }
+  const id = ulaz.data.id;
+
+  const zaglavlje = await pool.query(
+    `SELECT n.id, n.broj, n.kupac_id, k.naziv AS kupac, k.grad AS kupac_grad,
+            n.datum, n.datum_isporuke, n.status, n.napomena
+     FROM narudzbe n
+     JOIN kupci k ON k.id = n.kupac_id
+     WHERE n.id = $1`,
+    [id],
+  );
+  if (zaglavlje.rows.length === 0) return c.json({ poruka: "Narudžba ne postoji." }, 404);
+
+  const stavke = await pool.query(
+    `SELECT s.id, s.proizvod_id, p.sifra, p.naziv AS proizvod, p.jedinica_mjere,
+            s.kolicina, s.cijena_po_komadu, s.rabat_posto,
+            ${IZNOS_STAVKE} AS iznos
+     FROM stavke_narudzbe s
+     JOIN proizvodi p ON p.id = s.proizvod_id
+     WHERE s.narudzba_id = $1
+     ORDER BY s.id`,
+    [id],
+  );
+
+  // Ukupno sabiramo u centima (cijeli brojevi), da izbjegnemo greške zaokruživanja (0.1 + 0.2).
+  const ukupnoCenti = stavke.rows.reduce((zbir, s) => zbir + Math.round(s.iznos * 100), 0);
+  return c.json({ ...zaglavlje.rows[0], stavke: stavke.rows, ukupno: ukupnoCenti / 100 });
+});
+
+// Nova narudžba. Redoslijed:
+// 1. Zod provjeri oblik podataka (kupac, datum, stavke, količine, cijene, rabat, duplikati).
+// 2. U transakciji: provjera u bazi da kupac postoji i da su proizvodi aktivni,
+//    pa novi broj narudžbe i upis narudžbe i stavki. Ako bilo šta padne, ne upiše se ništa.
+app.post("/api/narudzbe", async (c) => {
+  const tijelo = await c.req.json().catch(() => null);
+  const ulaz = NarudzbaSema.safeParse(tijelo);
+  if (!ulaz.success) {
+    return c.json({ poruka: "Narudžba nije ispravna.", polja: poljaIzZoda(ulaz.error) }, 400);
+  }
+  const narudzba = ulaz.data;
+
+  const rezultat = await transakcija(async (client) => {
+    const greske = await provjeriUBazi(client, narudzba);
+    if (Object.keys(greske).length > 0) return { greske };
+
+    const broj = await sljedeciBroj(client, narudzba.datum);
+    const nova = await client.query(
+      "INSERT INTO narudzbe (broj, kupac_id, datum, status) VALUES ($1, $2, $3, 'KREIRANA') RETURNING id, broj, status",
+      [broj, narudzba.kupac_id, narudzba.datum],
+    );
+    await upisiStavke(client, nova.rows[0].id, narudzba.stavke);
+    return { narudzba: nova.rows[0] };
+  });
+
+  if ("greske" in rezultat) {
+    return c.json({ poruka: "Narudžba nije ispravna.", polja: rezultat.greske }, 400);
+  }
+  return c.json(rezultat.narudzba, 201);
+});
+
+// Provjere koje traže bazu: kupac postoji, svaki proizvod postoji i aktivan je.
+// Vraća greške po poljima, u istom obliku kao poljaIzZoda, da ih forma prikaže uz pravo polje.
+async function provjeriUBazi(client: PoolClient, narudzba: NarudzbaUlaz) {
+  const greske: Record<string, string> = {};
+
+  const kupac = await client.query("SELECT 1 FROM kupci WHERE id = $1", [narudzba.kupac_id]);
+  if (kupac.rows.length === 0) greske.kupac_id = "Kupac ne postoji.";
+
+  // Jedan upit za sve proizvode: "= ANY($1)" znači "id je u ovoj listi".
+  const ids = narudzba.stavke.map((s) => s.proizvod_id);
+  const proizvodi = await client.query<{ id: number; naziv: string; aktivan: boolean }>(
+    "SELECT id, naziv, aktivan FROM proizvodi WHERE id = ANY($1)",
+    [ids],
+  );
+  const poId = new Map(proizvodi.rows.map((p) => [p.id, p]));
+  narudzba.stavke.forEach((s, i) => {
+    const p = poId.get(s.proizvod_id);
+    if (!p) greske[`stavke.${i}.proizvod_id`] = "Proizvod ne postoji.";
+    else if (!p.aktivan) greske[`stavke.${i}.proizvod_id`] = `Proizvod „${p.naziv}" više nije aktivan.`;
+  });
+
+  return greske;
+}
+
+// Sljedeći broj u godini iz datuma narudžbe: N-2025-00001, N-2025-00002...
+// Zaključavanje (advisory lock) za tu godinu traje do kraja transakcije: ako dvoje snima u isto vrijeme,
+// drugi čeka da prvi završi, pa ne mogu dobiti isti broj.
+async function sljedeciBroj(client: PoolClient, datum: string) {
+  const godina = Number(datum.slice(0, 4));
+  await client.query("SELECT pg_advisory_xact_lock($1)", [godina]);
+  const r = await client.query(
+    "SELECT coalesce(max(substring(broj from 8)::int), 0) + 1 AS sljedeci FROM narudzbe WHERE broj LIKE $1",
+    [`N-${godina}-%`],
+  );
+  return `N-${godina}-${String(r.rows[0].sljedeci).padStart(5, "0")}`;
+}
+
+async function upisiStavke(client: PoolClient, narudzbaId: number, stavke: StavkaUlaz[]) {
+  for (const s of stavke) {
+    await client.query(
+      `INSERT INTO stavke_narudzbe (narudzba_id, proizvod_id, kolicina, cijena_po_komadu, rabat_posto)
+       VALUES ($1, $2, $3, $4, $5)`,
+      [narudzbaId, s.proizvod_id, s.kolicina, s.cijena_po_komadu, s.rabat_posto],
+    );
+  }
+}
+
+// Svi kupci, za izbor u formi.
+app.get("/api/kupci", async (c) => {
+  const rezultat = await pool.query(
+    "SELECT id, sifra, naziv, vrsta, grad FROM kupci ORDER BY naziv",
+  );
+  return c.json(rezultat.rows);
+});
+
+// Aktivni proizvodi s trenutnom cijenom iz cjenovnika, za izbor stavki u formi.
+app.get("/api/proizvodi", async (c) => {
+  const rezultat = await pool.query(`
+    SELECT p.id, p.sifra, p.naziv, p.jedinica_mjere, p.cijena, k.naziv AS kategorija
+    FROM proizvodi p
+    JOIN kategorije k ON k.id = p.kategorija_id
+    WHERE p.aktivan
+    ORDER BY k.naziv, p.naziv
+  `);
+  return c.json(rezultat.rows);
 });
 
 // Neočekivana greška (npr. iz baze) vraća JSON s porukom, ne običan tekst "Internal Server Error".
