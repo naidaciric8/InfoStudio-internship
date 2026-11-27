@@ -1,8 +1,8 @@
 // Oblik podataka koje backend vraća. Isti nazivi polja kao u JSON-u sa servera.
 
 // Statusi su definisani u shared/narudzba.ts (koristi ih i server), ovdje se samo prosljeđuju dalje.
-import type { Status } from "../shared/narudzba";
-export { STATUSI, type Status } from "../shared/narudzba";
+import type { NacinPlacanja, Status } from "../shared/narudzba";
+export { NACINI_PLACANJA, STATUSI, type NacinPlacanja, type Status } from "../shared/narudzba";
 
 // Red u listi narudžbi (GET /api/narudzbe)
 export type NarudzbaRed = {
@@ -12,6 +12,7 @@ export type NarudzbaRed = {
   kupac: string;
   datum: string; // "2025-12-31"
   status: Status;
+  nacin_placanja: NacinPlacanja;
   iznos: number;
 };
 
@@ -38,6 +39,7 @@ export type NarudzbaDetalji = {
   datum: string;
   datum_isporuke: string | null;
   status: Status;
+  nacin_placanja: NacinPlacanja;
   napomena: string | null;
   stavke: Stavka[];
   ukupno: number;

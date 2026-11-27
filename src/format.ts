@@ -1,6 +1,6 @@
 // Prikaz iznosa, datuma i statusa na jednom mjestu, da svuda izgledaju isto.
 import type { ChipProps } from "@mui/material/Chip";
-import type { Status } from "./tipovi";
+import type { NacinPlacanja, Status } from "./tipovi";
 
 // 1234.5 → "1.234,50 KM"
 // Formatiramo ručno: Chrome nema bosanska pravila za brojeve, pa bi Intl.NumberFormat("bs-BA")
@@ -37,4 +37,11 @@ export const STATUS_BOJA: Record<Status, ChipProps["color"]> = {
   POSLATA: "primary",
   ISPORUCENA: "success",
   OTKAZANA: "error",
+};
+
+// Način plaćanja za prikaz (u bazi je VIRMAN, na ekranu Virman).
+export const NACIN_PLACANJA_NAZIV: Record<NacinPlacanja, string> = {
+  GOTOVINA: "Gotovina",
+  KARTICA: "Kartica",
+  VIRMAN: "Virman",
 };

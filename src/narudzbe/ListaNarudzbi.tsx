@@ -5,8 +5,8 @@ import { Alert, Box, Button, Chip, Paper, Snackbar, Stack, Typography, useMediaQ
 import AddIcon from "@mui/icons-material/Add";
 import { DataGrid, type GridColDef, type GridColumnVisibilityModel, type GridFilterModel } from "@mui/x-data-grid";
 import { api, porukaGreske } from "../api";
-import { formatDatum, formatKM, STATUS_NAZIV, uDate } from "../format";
-import { STATUSI, type NarudzbaRed, type Status } from "../tipovi";
+import { formatDatum, formatKM, NACIN_PLACANJA_NAZIV, STATUS_NAZIV, uDate } from "../format";
+import { NACINI_PLACANJA, STATUSI, type NarudzbaRed, type Status } from "../tipovi";
 import DetaljiNarudzbe from "./DetaljiNarudzbe";
 import NarudzbaForma from "./NarudzbaForma";
 import StatusChip from "./StatusChip";
@@ -32,6 +32,13 @@ const kolone: GridColDef<NarudzbaRed>[] = [
     renderCell: (p) => <StatusChip status={p.row.status} />,
   },
   {
+    field: "nacin_placanja",
+    headerName: "Plaćanje",
+    type: "singleSelect", // filter nudi izbor od tri vrijednosti, a ćelija pokazuje naziv (Virman, ne VIRMAN)
+    width: 120,
+    valueOptions: NACINI_PLACANJA.map((n) => ({ value: n, label: NACIN_PLACANJA_NAZIV[n] })),
+  },
+  {
     field: "iznos",
     headerName: "Iznos",
     type: "number",
@@ -47,7 +54,7 @@ const kolone: GridColDef<NarudzbaRed>[] = [
     filterable: false,
     disableColumnMenu: true,
     // Tekst po kojem radi pretraga (lupa) na mobitelu.
-    valueGetter: (_v, red) => `${red.broj} ${red.kupac} ${STATUS_NAZIV[red.status]}`,
+    valueGetter: (_v, red) => `${red.broj} ${red.kupac} ${STATUS_NAZIV[red.status]} ${NACIN_PLACANJA_NAZIV[red.nacin_placanja]}`,
     renderCell: ({ row }) => (
       <Box sx={{ width: "100%", lineHeight: 1.4, py: 1 }}>
         <Stack direction="row" sx={{ justifyContent: "space-between", gap: 1 }}>
@@ -60,7 +67,7 @@ const kolone: GridColDef<NarudzbaRed>[] = [
         </Stack>
         <Stack direction="row" sx={{ justifyContent: "space-between", alignItems: "center", gap: 1, mt: 0.5 }}>
           <Typography variant="caption" color="text.secondary" noWrap>
-            {row.broj} · {formatDatum(row.datum)}
+            {row.broj} · {formatDatum(row.datum)} · {NACIN_PLACANJA_NAZIV[row.nacin_placanja]}
           </Typography>
           <StatusChip status={row.status} />
         </Stack>
@@ -75,6 +82,7 @@ const VIDLJIVOST_MOBITEL: GridColumnVisibilityModel = {
   kupac: false,
   datum: false,
   status: false,
+  nacin_placanja: false,
   iznos: false,
   kartica: true,
 };

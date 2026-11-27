@@ -1,4 +1,4 @@
-// Forma za novu narudžbu i za izmjenu postojeće (ista forma): kupac, datum i stavke.
+// Forma za novu narudžbu i za izmjenu postojeće (ista forma): kupac, datum, način plaćanja i stavke.
 // Stavka se dodaje i uklanja, a cijena se popuni iz cjenovnika kad se izabere proizvod (i može se promijeniti).
 // Nova narudžba: POST /api/narudzbe. Izmjena: forma se popuni postojećom narudžbom i šalje PUT /api/narudzbe/:id.
 // Provjera: ista Zod šema kao na serveru (shared/narudzba.ts). Greške koje vrati server
@@ -19,6 +19,7 @@ import {
   IconButton,
   InputAdornment,
   LinearProgress,
+  MenuItem,
   Stack,
   TextField,
   Tooltip,
@@ -29,9 +30,9 @@ import {
 import AddIcon from "@mui/icons-material/Add";
 import DeleteOutlinedIcon from "@mui/icons-material/DeleteOutlined";
 import { api, ApiGreska, porukaGreske } from "../api";
-import { formatKM } from "../format";
+import { formatKM, NACIN_PLACANJA_NAZIV } from "../format";
 import type { Kupac, NarudzbaDetalji, Proizvod } from "../tipovi";
-import { iznosStavke, NarudzbaSema, type NarudzbaUlaz, type StavkaUlaz } from "../../shared/narudzba";
+import { iznosStavke, NACINI_PLACANJA, NarudzbaSema, type NarudzbaUlaz, type StavkaUlaz } from "../../shared/narudzba";
 
 type Props = {
   otvorena: boolean;
@@ -113,6 +114,7 @@ export default function NarudzbaForma({ otvorena, izmjenaId = null, onClose, onS
         reset({
           kupac_id: postojeca.kupac_id,
           datum: postojeca.datum,
+          nacin_placanja: postojeca.nacin_placanja,
           stavke: postojeca.stavke.map((s) => ({
             proizvod_id: s.proizvod_id,
             kolicina: s.kolicina,
@@ -174,8 +176,8 @@ export default function NarudzbaForma({ otvorena, izmjenaId = null, onClose, onS
             </Alert>
           )}
 
-          {/* Kupac i datum */}
-          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "2fr 1fr" }, gap: 2, mb: 3 }}>
+          {/* Kupac, datum i način plaćanja */}
+          <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "2fr 1fr 1fr" }, gap: 2, mb: 3 }}>
             <Controller
               name="kupac_id"
               control={control}
@@ -224,6 +226,28 @@ export default function NarudzbaForma({ otvorena, izmjenaId = null, onClose, onS
                   helperText={fieldState.error?.message}
                   slotProps={{ inputLabel: { shrink: true } }}
                 />
+              )}
+            />
+            {/* Nova narudžba nema unaprijed izabran način plaćanja: korisnik ga mora izabrati sam. */}
+            <Controller
+              name="nacin_placanja"
+              control={control}
+              render={({ field, fieldState }) => (
+                <TextField
+                  {...field}
+                  value={field.value ?? ""} // "" = ništa nije izabrano
+                  select
+                  label="Način plaćanja"
+                  required
+                  error={!!fieldState.error}
+                  helperText={fieldState.error?.message}
+                >
+                  {NACINI_PLACANJA.map((n) => (
+                    <MenuItem key={n} value={n}>
+                      {NACIN_PLACANJA_NAZIV[n]}
+                    </MenuItem>
+                  ))}
+                </TextField>
               )}
             />
           </Box>

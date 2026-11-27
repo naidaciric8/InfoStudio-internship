@@ -158,8 +158,8 @@ Radi redom po kontrolnoj listi. Kad nešto proradi, označi to u `kit/zadatak.md
 - [ ] Nedozvoljen prelaz (npr. `ISPORUCENA` → `KREIRANA`), poslan preko `fetch` u konzoli, server odbija (status 400).
 - [ ] Narudžbu sa statusom `KREIRANA` otvoriš u istoj formi kao novu, promijeniš kupca, datum i stavke i sačuvaš. Server izmjenu provjerava po istim pravilima kao novu narudžbu. Izmjena ostaje i nakon osvježavanja.
 - [ ] Kod narudžbe koja nije `KREIRANA` server odbija izmjenu kupca, datuma i stavki, i brisanje (status 400).
-- [ ] `migracije/001-nacin-placanja.sql` dodaje u `narudzbe` kolonu `nacin_placanja` (`GOTOVINA`, `KARTICA` ili `VIRMAN`). Postojeće narudžbe dobiju `VIRMAN`, a `npm run baza` prolazi bez greške.
-- [ ] Način plaćanja se bira u formi i vidi u listi.
+- [x] `migracije/001-nacin-placanja.sql` dodaje u `narudzbe` kolonu `nacin_placanja` (`GOTOVINA`, `KARTICA` ili `VIRMAN`). Postojeće narudžbe dobiju `VIRMAN`, a `npm run baza` prolazi bez greške.
+- [x] Način plaćanja se bira u formi i vidi u listi.
 
 ### Faza 2: analitika (opcionalno)
 

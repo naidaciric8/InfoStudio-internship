@@ -30,7 +30,7 @@ import {
 import DeleteOutlinedIcon from "@mui/icons-material/DeleteOutlined";
 import EditOutlinedIcon from "@mui/icons-material/EditOutlined";
 import { api, porukaGreske } from "../api";
-import { formatDatum, formatKM, STATUS_NAZIV } from "../format";
+import { formatDatum, formatKM, NACIN_PLACANJA_NAZIV, STATUS_NAZIV } from "../format";
 import type { NarudzbaDetalji, Status } from "../tipovi";
 import { DOZVOLJENI_PRELAZI } from "../../shared/narudzba";
 import StatusChip from "./StatusChip";
@@ -150,7 +150,7 @@ export default function DetaljiNarudzbe({ id, onClose, onObrisano, onStatusPromi
             <Box
               sx={{
                 display: "grid",
-                gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(4, 1fr)" },
+                gridTemplateColumns: { xs: "1fr 1fr", sm: "repeat(3, 1fr)", md: "repeat(5, 1fr)" },
                 gap: 2,
                 mb: 3,
               }}
@@ -158,6 +158,7 @@ export default function DetaljiNarudzbe({ id, onClose, onObrisano, onStatusPromi
               <Podatak naziv="Kupac" vrijednost={narudzba.kupac} dodatno={narudzba.kupac_grad} />
               <Podatak naziv="Datum narudžbe" vrijednost={formatDatum(narudzba.datum)} />
               <Podatak naziv="Datum isporuke" vrijednost={formatDatum(narudzba.datum_isporuke)} />
+              <Podatak naziv="Način plaćanja" vrijednost={NACIN_PLACANJA_NAZIV[narudzba.nacin_placanja]} />
               <Podatak naziv="Broj stavki" vrijednost={String(narudzba.stavke.length)} />
             </Box>
 

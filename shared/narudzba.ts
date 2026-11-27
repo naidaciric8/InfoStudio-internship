@@ -8,6 +8,11 @@ import { z } from "zod";
 const MAX_KOLICINA = 1_000_000;
 const MAX_CIJENA = 1_000_000;
 
+// Načini plaćanja (kolona nacin_placanja iz migracije migracije/001-nacin-placanja.sql).
+// Forma iz ovoga pravi izbor, a server sve ostalo odbija.
+export const NACINI_PLACANJA = ["GOTOVINA", "KARTICA", "VIRMAN"] as const;
+export type NacinPlacanja = (typeof NACINI_PLACANJA)[number];
+
 export const StavkaSema = z.object({
   proizvod_id: z
     .number({ error: "Izaberi proizvod." })
@@ -38,6 +43,7 @@ export const NarudzbaSema = z
       .string({ error: "Upiši datum." })
       .regex(/^\d{4}-\d{2}-\d{2}$/, { error: "Upiši datum." })
       .refine(postojiDatum, { error: "Datum nije ispravan." }),
+    nacin_placanja: z.enum(NACINI_PLACANJA, { error: "Izaberi način plaćanja." }),
     stavke: z.array(StavkaSema, { error: "Dodaj bar jednu stavku." }).min(1, { error: "Dodaj bar jednu stavku." }),
   }, { error: "Zahtjev mora biti JSON objekat s narudžbom." })
   // Isti proizvod smije biti samo jednom. Greška ide na drugo (ponovljeno) pojavljivanje.

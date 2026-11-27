@@ -86,6 +86,7 @@ app.get("/api/narudzbe", async (c) => {
       k.naziv AS kupac,
       n.datum,
       n.status,
+      n.nacin_placanja,
       coalesce(sum(${IZNOS_STAVKE}), 0) AS iznos
     FROM narudzbe n
     JOIN kupci k ON k.id = n.kupac_id
@@ -106,7 +107,7 @@ app.get("/api/narudzbe/:id", async (c) => {
 
   const zaglavlje = await pool.query(
     `SELECT n.id, n.broj, n.kupac_id, k.naziv AS kupac, k.grad AS kupac_grad,
-            n.datum, n.datum_isporuke, n.status, n.napomena
+            n.datum, n.datum_isporuke, n.status, n.nacin_placanja, n.napomena
      FROM narudzbe n
      JOIN kupci k ON k.id = n.kupac_id
      WHERE n.id = $1`,
@@ -220,8 +221,9 @@ app.post("/api/narudzbe", async (c) => {
 
     const broj = await sljedeciBroj(client, narudzba.datum);
     const nova = await client.query(
-      "INSERT INTO narudzbe (broj, kupac_id, datum, status) VALUES ($1, $2, $3, 'KREIRANA') RETURNING id, broj, status",
-      [broj, narudzba.kupac_id, narudzba.datum],
+      `INSERT INTO narudzbe (broj, kupac_id, datum, nacin_placanja, status)
+       VALUES ($1, $2, $3, $4, 'KREIRANA') RETURNING id, broj, status`,
+      [broj, narudzba.kupac_id, narudzba.datum, narudzba.nacin_placanja],
     );
     await upisiStavke(client, nova.rows[0].id, narudzba.stavke);
     return { narudzba: nova.rows[0] };
@@ -259,8 +261,8 @@ app.put("/api/narudzbe/:id", async (c) => {
     if (Object.keys(greske).length > 0) return { kod: 422 as const, greske };
 
     const azurirana = await client.query(
-      "UPDATE narudzbe SET kupac_id = $2, datum = $3 WHERE id = $1 RETURNING id, broj, status",
-      [id, narudzba.kupac_id, narudzba.datum],
+      "UPDATE narudzbe SET kupac_id = $2, datum = $3, nacin_placanja = $4 WHERE id = $1 RETURNING id, broj, status",
+      [id, narudzba.kupac_id, narudzba.datum, narudzba.nacin_placanja],
     );
     // Stavke: najjednostavnije je obrisati stare i upisati nove (sve je u istoj transakciji).
     await client.query("DELETE FROM stavke_narudzbe WHERE narudzba_id = $1", [id]);
